@@ -1,7 +1,26 @@
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
 
-void main() => runApp(const AlgoCraftApp());
+import 'game_audio.dart';
+import 'game_progress.dart';
+
+void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  GameAudio.instance.init(); // musik latar + preferensi suara
+  GameProgress.instance.init(); // progres bintang/XP/koin
+  runApp(const AlgoCraftApp());
+}
+
+/// Pemisah ribuan gaya Indonesia: 1450 → "1.450".
+String _groupNum(int n) {
+  final s = n.toString();
+  final b = StringBuffer();
+  for (var i = 0; i < s.length; i++) {
+    if (i > 0 && (s.length - i) % 3 == 0) b.write('.');
+    b.write(s[i]);
+  }
+  return b.toString();
+}
 
 // ============================================================
 // COLOR PALETTE
@@ -368,6 +387,10 @@ class HomeScreen extends StatelessWidget {
     );
   }
 
+  /// Jumlah level yang sudah selesai (dapat minimal 1 bintang).
+  int get _doneLevels =>
+      kLevels.where((l) => GameProgress.instance.starsOf(l.number) > 0).length;
+
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -386,9 +409,14 @@ class HomeScreen extends StatelessWidget {
                 const SizedBox(height: 20),
                 _missionCard(context),
                 const SizedBox(height: 26),
-                _learningProgress(context),
+                ValueListenableBuilder<int>(
+                  valueListenable: GameProgress.instance.changes,
+                  builder: (_, _, _) => _learningProgress(context),
+                ),
                 const SizedBox(height: 14),
                 _communityCard(),
+                const SizedBox(height: 14),
+                _soundCard(),
               ],
             ),
           ),
@@ -416,22 +444,38 @@ class HomeScreen extends StatelessWidget {
                 ),
               ],
             ),
-            child: const Text(
-              '12 XP',
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w900,
-                fontSize: 12,
-                letterSpacing: .3,
+            child: ValueListenableBuilder<int>(
+              valueListenable: GameProgress.instance.changes,
+              builder: (_, _, _) => Text(
+                '${GameProgress.instance.xp} XP',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w900,
+                  fontSize: 12,
+                  letterSpacing: .3,
+                ),
               ),
             ),
           ),
           const SizedBox(width: 7),
           _pill(Icons.bolt_rounded, C.cyan, '100'),
           const SizedBox(width: 7),
-          _pill(Icons.monetization_on_rounded, C.gold, '1.450'),
+          ValueListenableBuilder<int>(
+            valueListenable: GameProgress.instance.changes,
+            builder: (_, _, _) => _pill(Icons.monetization_on_rounded, C.gold,
+                _groupNum(GameProgress.instance.coins)),
+          ),
           const Spacer(),
-          _roundIcon(Icons.volume_up_rounded, () => _snack(c, 'Suara belum tersedia')),
+          ValueListenableBuilder<int>(
+            valueListenable: GameAudio.instance.changes,
+            builder: (c, _, _) => _roundIcon(
+              GameAudio.instance.soundOn
+                  ? Icons.volume_up_rounded
+                  : Icons.volume_off_rounded,
+              () => GameAudio.instance
+                  .setSoundOn(!GameAudio.instance.soundOn),
+            ),
+          ),
           const SizedBox(width: 9),
           GestureDetector(
             onTap: () => onTab(2),
@@ -516,42 +560,24 @@ class HomeScreen extends StatelessWidget {
       child: ClipRRect(
         borderRadius: BorderRadius.circular(26),
         child: Stack(
+          fit: StackFit.expand,
           children: [
-            // langit
-            Container(
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [Color(0xFF1878D4), Color(0xFF4FB8F5), Color(0xFFAEE8FF)],
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
+            // gambar banner beranda
+            Image.asset(
+              'assets/images/bg.png',
+              fit: BoxFit.cover,
+              errorBuilder: (_, _, _) => Container(
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      Color(0xFF1878D4),
+                      Color(0xFF4FB8F5),
+                      Color(0xFFAEE8FF)
+                    ],
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                  ),
                 ),
-              ),
-            ),
-
-            // awan putih
-            Positioned(top: 62, left: 18, child: _cloud(56, 15)),
-            Positioned(top: 104, right: 96, child: _cloud(44, 12)),
-            Positioned(top: 34, right: 14, child: _cloud(38, 11)),
-            Positioned(top: 138, left: 4, child: _cloud(32, 9)),
-
-            // simbol coding mengambang
-            Positioned(left: 14, top: 92, child: _sym('<>', 17, Colors.white)),
-            Positioned(right: 112, top: 30, child: _sym('{}', 15, C.cyanSoft)),
-            Positioned(right: 92, top: 116, child: _sym('01', 14, Colors.white)),
-            Positioned(left: 26, bottom: 74, child: _sym('if', 15, C.cyanSoft)),
-            Positioned(right: 150, top: 68, child: _sym(';', 16, Colors.white)),
-
-            // pulau hijau kecil
-            Positioned(left: 0, right: 0, bottom: 0, child: _island()),
-
-            // robot
-            Positioned(
-              right: 34,
-              bottom: 40,
-              child: SizedBox(
-                width: 92,
-                height: 104,
-                child: CustomPaint(painter: _KodiPainter()),
               ),
             ),
 
@@ -585,125 +611,6 @@ class HomeScreen extends StatelessWidget {
             ),
           ],
         ),
-      ),
-    );
-  }
-
-  Widget _cloud(double w, double h) {
-    BoxDecoration d() => BoxDecoration(
-          color: Colors.white.withValues(alpha: .9),
-          shape: BoxShape.circle,
-        );
-    return SizedBox(
-      width: w,
-      height: h * 1.7,
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          Container(width: h, height: h, decoration: d()),
-          Container(width: h * 1.2, height: h * 1.2, decoration: d()),
-          Container(width: h, height: h, decoration: d()),
-        ],
-      ),
-    );
-  }
-
-  Widget _sym(String t, double size, Color col) {
-    return Text(
-      t,
-      style: TextStyle(
-        fontSize: size,
-        fontFamily: 'monospace',
-        fontWeight: FontWeight.w900,
-        color: col.withValues(alpha: .62),
-        height: 1,
-      ),
-    );
-  }
-
-  Widget _island() {
-    return SizedBox(
-      height: 122,
-      width: double.infinity,
-      child: Stack(
-        alignment: Alignment.bottomCenter,
-        children: [
-          // tanah
-          Container(
-            width: 210,
-            height: 62,
-            decoration: const BoxDecoration(
-              color: C.dirt,
-              borderRadius: BorderRadius.vertical(bottom: Radius.circular(30)),
-            ),
-          ),
-          // rumput
-          Container(
-            width: 244,
-            height: 26,
-            decoration: BoxDecoration(
-              color: C.grass,
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(14)),
-              boxShadow: [
-                BoxShadow(
-                  color: C.grassDark.withValues(alpha: .55),
-                  blurRadius: 8,
-                  offset: const Offset(0, -2),
-                ),
-              ],
-            ),
-          ),
-          // bunga & tanaman
-          Positioned(left: 22, bottom: 60, child: _flower(Colors.white)),
-          Positioned(left: 52, bottom: 62, child: _flower(const Color(0xFFFFD166))),
-          Positioned(right: 118, bottom: 60, child: _plant()),
-          Positioned(right: 26, bottom: 62, child: _plant()),
-          Positioned(left: 100, bottom: 60, child: _flower(const Color(0xFFFF9BC1))),
-        ],
-      ),
-    );
-  }
-
-  Widget _flower(Color petal) {
-    return Container(
-      width: 16,
-      height: 16,
-      decoration: BoxDecoration(
-        color: petal,
-        shape: BoxShape.circle,
-        border: Border.all(color: C.grassDark, width: 1.2),
-      ),
-      child: Center(
-        child: Container(
-          width: 5,
-          height: 5,
-          decoration: const BoxDecoration(color: C.gold, shape: BoxShape.circle),
-        ),
-      ),
-    );
-  }
-
-  Widget _plant() {
-    return SizedBox(
-      width: 22,
-      height: 28,
-      child: Stack(
-        alignment: Alignment.bottomCenter,
-        children: [
-          for (final a in [-0.55, 0.0, 0.55])
-            Transform.rotate(
-              angle: a,
-              child: Container(
-                width: 7,
-                height: 20,
-                decoration: BoxDecoration(
-                  color: C.grassDark,
-                  borderRadius: BorderRadius.circular(4),
-                ),
-              ),
-            ),
-        ],
       ),
     );
   }
@@ -867,6 +774,71 @@ class HomeScreen extends StatelessWidget {
     );
   }
 
+  // ── KARTU SUARA (on/off + volume) ──
+  Widget _soundCard() {
+    return ValueListenableBuilder<int>(
+      valueListenable: GameAudio.instance.changes,
+      builder: (context, _, _) {
+        final audio = GameAudio.instance;
+        final pct = (audio.volume * 100).round();
+        return Container(
+          width: double.infinity,
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 4),
+          decoration: BoxDecoration(
+            color: C.navyCard,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: C.navyLine),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  GestureDetector(
+                    onTap: () =>
+                        GameAudio.instance.setSoundOn(!audio.soundOn),
+                    child: Icon(
+                      audio.soundOn
+                          ? Icons.volume_up_rounded
+                          : Icons.volume_off_rounded,
+                      size: 20,
+                      color: audio.soundOn ? C.cyan : Colors.white38,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  const Expanded(
+                    child: Text(
+                      'Musik & Suara',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w900,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                  Text(
+                    '$pct%',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w900,
+                      color: C.cyanSoft,
+                    ),
+                  ),
+                ],
+              ),
+              Slider(
+                value: audio.volume,
+                onChanged: (v) => GameAudio.instance.setVolume(v),
+                activeColor: C.cyan,
+                inactiveColor: C.navyCard2,
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   // ── PROGRES BELAJAR ──
   Widget _learningProgress(BuildContext c) {
     return Column(
@@ -884,12 +856,15 @@ class HomeScreen extends StatelessWidget {
               child: const Icon(Icons.bar_chart_rounded, color: C.cyan, size: 19),
             ),
             const SizedBox(width: 10),
-            const Text(
-              'Progres Belajar',
-              style: TextStyle(
-                fontSize: 17,
-                fontWeight: FontWeight.w900,
-                color: Colors.white,
+            const Flexible(
+              child: Text(
+                'Progres Belajar',
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w900,
+                  color: Colors.white,
+                ),
               ),
             ),
             const Spacer(),
@@ -980,9 +955,9 @@ class HomeScreen extends StatelessWidget {
                   color: C.green.withValues(alpha: .16),
                   borderRadius: BorderRadius.circular(9),
                 ),
-                child: const Text(
-                  '3/5 Tuntas',
-                  style: TextStyle(
+                child: Text(
+                  '$_doneLevels/${kLevels.length} Tuntas',
+                  style: const TextStyle(
                     fontSize: 10.5,
                     fontWeight: FontWeight.w900,
                     color: Color(0xFF6EE7A8),
@@ -992,7 +967,7 @@ class HomeScreen extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          _bar(.6),
+          _bar(kLevels.isEmpty ? 0 : _doneLevels / kLevels.length),
         ],
       ),
     );
@@ -1184,95 +1159,6 @@ class _KodiFacePainter extends CustomPainter {
 }
 
 // ============================================================
-// KODI — robot putih/biru dengan layar wajah digital
-// ============================================================
-class _KodiPainter extends CustomPainter {
-  const _KodiPainter();
-  @override
-  void paint(Canvas canvas, Size size) {
-    final u = size.width;
-    final cx = u / 2;
-
-    final shell = Paint()..color = Colors.white;
-    final blue = Paint()..color = const Color(0xFF3B8FF0);
-    final blueDark = Paint()..color = const Color(0xFF1E5FBF);
-    final screen = Paint()..color = const Color(0xFF0E1836);
-    final glow = Paint()..color = const Color(0xFF8FF3FF);
-
-    void box(double x, double y, double w, double h, double r, Paint p) {
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(
-          Rect.fromLTWH(cx + x * u - w * u / 2, y * u - h * u / 2, w * u, h * u),
-          Radius.circular(r * u),
-        ),
-        p,
-      );
-    }
-
-    // bayangan di tanah
-    canvas.drawOval(
-      Rect.fromCenter(center: Offset(cx, 1.05 * u), width: .68 * u, height: .08 * u),
-      Paint()..color = const Color(0x2B000000),
-    );
-
-    // kaki
-    box(-.16, .95, .17, .18, .05, blueDark);
-    box(.16, .95, .17, .18, .05, blueDark);
-
-    // badan
-    box(0, .70, .54, .34, .14, shell);
-    box(0, .70, .32, .18, .07, blue);
-    canvas.drawCircle(Offset(cx, .70 * u), .05 * u, glow);
-
-    // lengan
-    box(-.335, .70, .13, .26, .06, shell);
-    box(.335, .70, .13, .26, .06, shell);
-    canvas.drawCircle(Offset(cx - .335 * u, .85 * u), .075 * u, blue);
-    canvas.drawCircle(Offset(cx + .335 * u, .85 * u), .075 * u, blue);
-
-    // kepala
-    box(0, .32, .58, .40, .14, shell);
-    canvas.drawCircle(Offset(cx - .30 * u, .32 * u), .06 * u, blue);
-    canvas.drawCircle(Offset(cx + .30 * u, .32 * u), .06 * u, blue);
-
-    // layar wajah digital
-    box(0, .33, .42, .27, .09, screen);
-
-    // mata
-    canvas.drawCircle(Offset(cx - .09 * u, .30 * u), .045 * u, glow);
-    canvas.drawCircle(Offset(cx + .09 * u, .30 * u), .045 * u, glow);
-
-    // senyum
-    canvas.drawArc(
-      Rect.fromCenter(center: Offset(cx, .36 * u), width: .19 * u, height: .13 * u),
-      0,
-      math.pi,
-      false,
-      Paint()
-        ..color = const Color(0xFF8FF3FF)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = .024 * u
-        ..strokeCap = StrokeCap.round,
-    );
-
-    // antena
-    canvas.drawLine(
-      Offset(cx, .12 * u),
-      Offset(cx, .06 * u),
-      Paint()
-        ..color = const Color(0xFF1E5FBF)
-        ..strokeWidth = .028 * u
-        ..strokeCap = StrokeCap.round,
-    );
-    canvas.drawCircle(Offset(cx, .045 * u), .05 * u, glow);
-  }
-
-  @override
-  bool shouldRepaint(covariant _KodiPainter oldDelegate) => false;
-}
-
-
-// ============================================================
 // MISSION COMMANDS
 // ============================================================
 class Cmd {
@@ -1291,11 +1177,22 @@ const kCmds = <String, Cmd>{
   'lompat': Cmd('lompat', 'Lompat', 'langkah: 2', 'lompat()', Icons.trending_up_rounded, Color(0xFFB7A1FF)),
   'kanan': Cmd('kanan', 'Belok Kanan', 'putaran: 90°', 'belok_kanan()', Icons.turn_right_rounded, Color(0xFF6EE7A8)),
   'kiri': Cmd('kiri', 'Belok Kiri', 'putaran: 90°', 'belok_kiri()', Icons.turn_left_rounded, Color(0xFF57D98F)),
-  'ulang': Cmd('ulang', 'Ulangi', '2x blok sebelumnya', 'ulangi_blok()', Icons.repeat_rounded, Color(0xFFFFD166)),
+  'ulang': Cmd('ulang', 'Ulangi', '2x lagi blok sebelumnya', 'ulangi_blok()', Icons.repeat_rounded, Color(0xFFFFD166)),
+  'ulang3': Cmd('ulang3', 'Ulangi 3x', 'jalankan 3x blok di atasnya', 'ulangi_blok(3)', Icons.repeat_rounded, Color(0xFFFFB74D)),
+  'ulang4': Cmd('ulang4', 'Ulangi 4x', 'jalankan 4x blok di atasnya', 'ulangi_blok(4)', Icons.repeat_rounded, Color(0xFFFFE082)),
   'destroy': Cmd('destroy', 'Tebang Pohon', 'damping pohon', 'destroy()', Icons.cut_rounded, Color(0xFF8BD450)),
   'shear': Cmd('shear', 'Cukur Domba', 'kumpulkan wool', 'shear()', Icons.content_cut_rounded, Color(0xFFFF9BC1)),
+  'place': Cmd('place', 'Letakkan Kayu', 'papan kayu', 'place("kayu")', Icons.carpenter_rounded, Color(0xFFE0A05A)),
+  'placeBatu': Cmd('placeBatu', 'Letakkan Batu', 'batu bata', 'place("batu")', Icons.foundation_rounded, Color(0xFF9FB0CC)),
   'tunggu': Cmd('tunggu', 'Tunggu', '1 detik', 'tunggu(1)', Icons.hourglass_bottom_rounded, Color(0xFF9AA8C7)),
 };
+
+/// Balok pengulang: 'ulang' mengulang 1 balok sebelumnya,
+/// 'ulang3' / 'ulang4' mengulang seluruh kelompok balok di atasnya.
+bool _isRepeat(String id) => id == 'ulang' || id == 'ulang3' || id == 'ulang4';
+
+/// Berapa kali balok pengulang [id] menjalankan tugasnya.
+int _repeatTimes(String id) => id == 'ulang' ? 2 : (id == 'ulang3' ? 3 : 4);
 
 // Arah: 0 = atas, 1 = kanan, 2 = bawah, 3 = kiri
 const kDr = [-1, 0, 1, 0];
@@ -1317,12 +1214,14 @@ class MissionLevel {
   final int capacity; // maksimum jumlah blok
   final int par; // jumlah blok minimum untuk 3 bintang (0 = jarak langsung)
   final int starTarget;
+  final int boardSize; // sisi papan (default 4, level membangun bisa lebih besar)
   final int startRow, startCol, startDir;
   final int goalRow, goalCol;
   final List<List<int>> rocks; // batu penghalang
   final List<List<int>> bushes; // dekorasi semak
   final List<List<int>> trees; // pohon yang bisa ditebang (sasaran blok destroy)
   final List<List<int>> sheep; // domba yang bisa dicukur (sasaran blok shear)
+  final List<List<int>> walls; // petak area bangunan (sasaran blok place)
   final List<String> tips;
   final int reward;
 
@@ -1339,6 +1238,7 @@ class MissionLevel {
     this.capacity = 8,
     this.par = 0,
     this.starTarget = 3,
+    this.boardSize = 4,
     required this.startRow,
     required this.startCol,
     required this.startDir,
@@ -1348,6 +1248,7 @@ class MissionLevel {
     this.bushes = const [],
     this.trees = const [],
     this.sheep = const [],
+    this.walls = const [],
     required this.tips,
     required this.reward,
   });
@@ -1380,8 +1281,23 @@ class MissionLevel {
   /// semua domba, bukan dengan menduduki petak sasaran.
   bool get hasSheep => sheep.isNotEmpty;
 
-  /// True kalau level ini punya sasaran khusus (pohon atau domba).
-  bool get hasCollectTarget => hasTree || hasSheep;
+  /// Level ini memakai fitur membangun: menang dengan menutup semua
+  /// petak area bangunan (walls) menggunakan blok place().
+  bool get hasBuild => walls.isNotEmpty;
+
+  /// Jumlah petak area bangunan yang harus dipasangi papan.
+  int get buildTotal => walls.length;
+
+  /// Indeks petak area bangunan di (r, c), atau -1 kalau bukan area bangunan.
+  int wallIndexAt(int r, int c) {
+    for (var i = 0; i < walls.length; i++) {
+      if (walls[i][0] == r && walls[i][1] == c) return i;
+    }
+    return -1;
+  }
+
+  /// True kalau level ini punya sasaran khusus (pohon, domba, atau area bangunan).
+  bool get hasCollectTarget => hasTree || hasSheep || hasBuild;
 
   /// Jarak Manhattan dari titik awal ke sasaran.
   int get distance =>
@@ -1394,7 +1310,7 @@ class MissionLevel {
 }
 
 // ============================================================
-// 5 LEVEL — konsisten untuk semua memakai layout yang sama
+// 7 LEVEL — konsisten untuk semua memakai layout yang sama
 // ============================================================
 const kLevels = <MissionLevel>[
   MissionLevel(
@@ -1560,6 +1476,98 @@ const kLevels = <MissionLevel>[
     ],
     reward: 100,
   ),
+  MissionLevel(
+    number: 6,
+    title: 'Dinding Pertama',
+    tabTitle: 'Dinding Rumah',
+    location: 'Lahan Bangun',
+    difficulty: 'TINGKAT SULIT',
+    mission:
+        'Setiap rumah dimulai dengan dinding. Bangunlah bagian pertama rumah '
+        'Anda dengan meletakkan perintah place dan move forward ke dalam '
+        'repeat loop.',
+    hint:
+        'Petak bergaris oranye di sisi kiri adalah area dinding. place() '
+        'meletakkan papan kayu di petak di depan bot, lalu gerak_maju() '
+        'membuat bot melangkah ke petak itu.',
+    quickTip:
+        'Masukkan place("kayu") dan gerak_maju() ke dalam perulangan: '
+        'ulangi_blok(4) menjalankan keduanya 4 kali sehingga 4 papan terpasang '
+        'hanya dengan 3 balok.',
+    palette: ['place', 'maju', 'ulang4'],
+    capacity: 5,
+    par: 3,
+    starTarget: 3,
+    boardSize: 5,
+    startRow: 0,
+    startCol: 0,
+    startDir: 2, // menghadap bawah
+    goalRow: 4,
+    goalCol: 0,
+    rocks: [],
+    bushes: [[0, 3], [1, 4], [3, 3]],
+    walls: [
+      [1, 0],
+      [2, 0],
+      [3, 0],
+      [4, 0],
+    ],
+    tips: [
+      'ulangi_blok(4) menjalankan place + maju tepat 4 kali - balok di atasnya '
+          'tidak ikut dijalankan lagi di luar loop.',
+      'Urutan menang: place("kayu"), gerak_maju(), ulangi_blok(4). '
+          'Total 3 balok untuk 4 papan.',
+      'Papan harus dipasang sebelum bot melangkah. Kalau maju dulu baru '
+          'place, bot akan melewati petak dinding tanpa memasang papan.',
+    ],
+    reward: 120,
+  ),
+  MissionLevel(
+    number: 7,
+    title: 'Sisa Rumah',
+    tabTitle: 'Sisa Rumah',
+    location: 'Lahan Bangun',
+    difficulty: 'TINGKAT SULIT',
+    mission:
+        'Bangunlah sisa rumah Anda dari material sesuka Anda. Perintah repeat '
+        'akan membantu.',
+    hint:
+        'Sisa dindingnya berbentuk huruf L. ulangi_blok(3) mengulang place + '
+        'maju tiga kali untuk sisi pertama, lalu belok kiri dan pasang papan '
+        'satu per satu untuk sisi kedua.',
+    quickTip:
+        'Material bebas: place("kayu") dan place("batu") sama-sama dihitung '
+        'sebagai papan dinding. Contoh urutan: place, maju, ulangi_blok(3), '
+        'belok_kiri, place, maju, place, maju.',
+    palette: ['place', 'placeBatu', 'maju', 'kanan', 'kiri', 'ulang3'],
+    capacity: 9,
+    par: 8,
+    starTarget: 3,
+    boardSize: 5,
+    startRow: 0,
+    startCol: 0,
+    startDir: 2, // menghadap bawah
+    goalRow: 3,
+    goalCol: 2,
+    rocks: [],
+    bushes: [[0, 2], [1, 4], [4, 1], [4, 4]],
+    walls: [
+      [1, 0],
+      [2, 0],
+      [3, 0],
+      [3, 1],
+      [3, 2],
+    ],
+    tips: [
+      'ulangi_blok(3) menjalankan balok di atasnya tepat 3 kali - balok itu '
+          'tidak dijalankan lagi di luar loop.',
+      'Urutan menang: place, maju, ulangi_blok(3), kiri, place, maju, '
+          'place, maju. Total 8 balok untuk 5 papan.',
+      'Campurkan material sesuka Anda: papan kayu dan batu sama-sama menutup '
+          'petak area bangunan.',
+    ],
+    reward: 140,
+  ),
 ];
 
 // ============================================================
@@ -1573,7 +1581,7 @@ class ChallengeScreen extends StatefulWidget {
 }
 
 class _ChallengeScreenState extends State<ChallengeScreen> {
-  static const int boardSize = 4;
+  int get boardSize => lv.boardSize;
 
   final List<String> _program = [];
   int _row = 3, _col = 0, _dir = 1;
@@ -1584,6 +1592,7 @@ class _ChallengeScreenState extends State<ChallengeScreen> {
   bool _success = false;
   final Set<int> _chopped = {}; // indeks pohon yang sudah ditebang
   final Set<int> _shorn = {}; // indeks domba yang sudah dicukur
+  final List<List<int>> _placed = []; // papan terpasang: [row, col, material]
   String _status = 'Susun balok kode, lalu tekan Jalankan';
 
   MissionLevel get lv => widget.level;
@@ -1618,6 +1627,7 @@ class _ChallengeScreenState extends State<ChallengeScreen> {
     _moves = 0;
     _chopped.clear();
     _shorn.clear();
+    _placed.clear();
   }
 
   /// Kayu terkumpul: "1/3".
@@ -1628,8 +1638,24 @@ class _ChallengeScreenState extends State<ChallengeScreen> {
   int get _woolCount => _shorn.length;
   int get _woolTotal => lv.sheep.length;
 
+  /// Papan terpasang: "3/4".
+  int get _wallDone =>
+      lv.walls.where((w) => _placedIndexAt(w[0], w[1]) >= 0).length;
+
+  /// Indeks papan di petak (r, c), atau -1 kalau belum ada papan.
+  int _placedIndexAt(int r, int c) {
+    for (var i = 0; i < _placed.length; i++) {
+      if (_placed[i][0] == r && _placed[i][1] == c) return i;
+    }
+    return -1;
+  }
+
+  /// Semua petak area bangunan sudah terpasang papan.
+  bool get _buildDone => lv.hasBuild && _wallDone >= lv.buildTotal;
+
   /// Judul header arena, menyesuaikan tipe sasaran level.
   String get _arenaTitle {
+    if (lv.hasBuild) return 'Bangun ${lv.buildTotal} Papan Dinding';
     if (lv.hasSheep) return 'Cukur $_woolTotal Domba';
     if (lv.hasTree) return 'Tebang $_woodTotal Pohon';
     return 'Target 2 Pihak';
@@ -1670,6 +1696,7 @@ class _ChallengeScreenState extends State<ChallengeScreen> {
       _success = false;
       _status = '${kCmds[id]!.code} ditambahkan';
     });
+    GameAudio.instance.playSfx('click');
   }
 
   void _removeBlock(int i) {
@@ -1681,6 +1708,7 @@ class _ChallengeScreenState extends State<ChallengeScreen> {
       _success = false;
       _status = 'Balok dihapus';
     });
+    GameAudio.instance.playSfx('click');
   }
 
   Future<bool> _turn(int delta, Cmd cmd) async {
@@ -1808,6 +1836,50 @@ class _ChallengeScreenState extends State<ChallengeScreen> {
     return true;
   }
 
+  /// Meletakkan papan di petak area bangunan di depan bot.
+  /// [mat] 0 = papan kayu, 1 = batu bata. Papan tidak menghalangi jalan,
+  /// jadi bot tetap bisa melangkah ke petak yang baru dipasang.
+  Future<bool> _place(int mat, Cmd cmd) async {
+    if (!lv.hasBuild) {
+      setState(() => _status = 'Level ini tidak punya area bangunan');
+      await Future.delayed(const Duration(milliseconds: 420));
+      return false;
+    }
+    final fr = _row + kDr[_dir];
+    final fc = _col + kDc[_dir];
+    if (!_inside(fr, fc)) {
+      setState(
+          () => _status = 'Gagal! ${cmd.code} - tidak ada petak di depan bot');
+      await Future.delayed(const Duration(milliseconds: 420));
+      return false;
+    }
+    if (lv.wallIndexAt(fr, fc) < 0) {
+      setState(() => _status =
+          'Gagal! ${cmd.code} harus di petak area bangunan (garis oranye)');
+      await Future.delayed(const Duration(milliseconds: 420));
+      return false;
+    }
+    if (lv.rockAt(fr, fc) ||
+        lv.treeAt(fr, fc) ||
+        lv.sheepIndexAt(fr, fc) >= 0) {
+      setState(() => _status = 'Petak di depan bot masih terisi objek lain');
+      await Future.delayed(const Duration(milliseconds: 420));
+      return false;
+    }
+    if (_placedIndexAt(fr, fc) >= 0) {
+      setState(() => _status = '${cmd.code} · Petak itu sudah terpasang papan');
+      await Future.delayed(const Duration(milliseconds: 260));
+      return true;
+    }
+    setState(() {
+      _placed.add([fr, fc, mat]);
+      _status = '${cmd.code} · Papan $_wallDone/${lv.buildTotal} terpasang!';
+    });
+    GameAudio.instance.playSfx('place');
+    await Future.delayed(const Duration(milliseconds: 650));
+    return true;
+  }
+
   Future<bool> _execCmd(String id) async {
     final cmd = kCmds[id]!;
     switch (id) {
@@ -1825,6 +1897,10 @@ class _ChallengeScreenState extends State<ChallengeScreen> {
         return _destroy(cmd);
       case 'shear':
         return _shear(cmd);
+      case 'place':
+        return _place(0, cmd);
+      case 'placeBatu':
+        return _place(1, cmd);
       case 'tunggu':
         setState(() => _status = 'tunggu(1) · 1 detik');
         await Future.delayed(const Duration(milliseconds: 900));
@@ -1834,20 +1910,65 @@ class _ChallengeScreenState extends State<ChallengeScreen> {
     }
   }
 
-  /// Menjalankan satu instruksi (dipakai mode "Langkah").
-  Future<bool> _execOne(String id, int at) async {
+  /// Indeks awal kelompok balok yang diulang oleh balok repeat di [at].
+  /// Kelompok berhenti tepat sebelum balok repeat sebelumnya (atau awal program).
+  int _groupStart(int at) {
+    for (var i = at - 1; i >= 0; i--) {
+      if (_isRepeat(_program[i])) return i + 1;
+    }
+    return 0;
+  }
+
+  /// Balok repeat pertama SETELAH balok [i], atau -1 kalau tidak ada.
+  /// Hanya ulangi_blok(3)/(4) yang menarik balok di atasnya ke dalam loop,
+  /// jadi balok isi loop tidak ikut dijalankan di alur utama - loop-nya
+  /// sendiri yang menjalankannya tepat N kali.
+  int _repeatOwner(int i) {
+    for (var j = i + 1; j < _program.length; j++) {
+      if (!_isRepeat(_program[j])) continue;
+      return _program[j] == 'ulang' ? -1 : j;
+    }
+    return -1;
+  }
+
+  /// Menjalankan balok pengulang (ulangi_blok) di posisi [at].
+  Future<bool> _execRepeat(int at) async {
+    final id = _program[at];
+    if (at == 0) {
+      setState(() =>
+          _status = '${kCmds[id]!.code} harus dipakai setelah balok lain');
+      await Future.delayed(const Duration(milliseconds: 420));
+      return false;
+    }
     if (id == 'ulang') {
-      if (at == 0) {
-        setState(() => _status = 'ulangi_blok() harus dipakai setelah blok lain');
-        return false;
-      }
       final prev = _program[at - 1];
-      setState(() => _status = 'Mengulang: ${kCmds[prev]!.code}');
+      setState(() => _status = 'Mengulang 2x: ${kCmds[prev]!.code}');
       await Future.delayed(const Duration(milliseconds: 160));
       var ok = await _execCmd(prev);
       if (ok) ok = await _execCmd(prev);
       return ok;
     }
+    final start = _groupStart(at);
+    final times = _repeatTimes(id);
+    if (start >= at) {
+      setState(() =>
+          _status = '${kCmds[id]!.code} harus punya balok di atasnya');
+      await Future.delayed(const Duration(milliseconds: 420));
+      return false;
+    }
+    setState(() => _status = 'Mengulang ${times}x: balok ${start + 1}-$at');
+    await Future.delayed(const Duration(milliseconds: 160));
+    for (var k = 0; k < times; k++) {
+      for (var i = start; i < at; i++) {
+        if (!await _execCmd(_program[i])) return false;
+      }
+    }
+    return true;
+  }
+
+  /// Menjalankan satu instruksi (dipakai mode "Langkah").
+  Future<bool> _execOne(String id, int at) async {
+    if (_isRepeat(id)) return _execRepeat(at);
     return _execCmd(id);
   }
 
@@ -1855,29 +1976,43 @@ class _ChallengeScreenState extends State<ChallengeScreen> {
     // Level berpohon menang lewat penebangan, level berdomba menang lewat
     // wool lengkap, level biasa menang lewat petak sasaran.
     final win = ok &&
-        (lv.hasSheep
-            ? _woolCount >= _woolTotal
-            : lv.hasTree
-                ? _woodCount >= _woodTotal
-                : (_row == lv.goalRow && _col == lv.goalCol));
+        (lv.hasBuild
+            ? _buildDone
+            : lv.hasSheep
+                ? _woolCount >= _woolTotal
+                : lv.hasTree
+                    ? _woodCount >= _woodTotal
+                    : (_row == lv.goalRow && _col == lv.goalCol));
     setState(() {
       _running = false;
       _success = win;
       _status = win
           ? 'Misi berhasil! Kamu raih $_starsUsed bintang.'
-          : lv.hasSheep
-              ? 'Kode selesai, wool baru $_woolCount/$_woolTotal.'
-              : lv.hasTree
-                  ? 'Kode selesai, kayu baru $_woodCount/$_woodTotal.'
-                  : 'Kode selesai, kambing belum tercapai.';
+          : lv.hasBuild
+              ? 'Kode selesai, papan baru $_wallDone/${lv.buildTotal}.'
+              : lv.hasSheep
+                  ? 'Kode selesai, wool baru $_woolCount/$_woolTotal.'
+                  : lv.hasTree
+                      ? 'Kode selesai, kayu baru $_woodCount/$_woodTotal.'
+                      : 'Kode selesai, kambing belum tercapai.';
     });
     if (win) {
+      await GameProgress.instance.recordWin(
+        number: lv.number,
+        stars: _starsUsed,
+        xpGain: lv.reward,
+        coinGain: lv.reward ~/ 10,
+      );
+      GameAudio.instance.playSfx('win');
       await Future.delayed(const Duration(milliseconds: 700));
       if (!mounted) return;
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (_) => LevelCompleteScreen(level: lv)),
+        MaterialPageRoute(
+            builder: (_) => LevelCompleteScreen(level: lv, stars: _starsUsed)),
       );
+    } else {
+      GameAudio.instance.playSfx('fail');
     }
   }
 
@@ -1894,25 +2029,20 @@ class _ChallengeScreenState extends State<ChallengeScreen> {
       _resetRobot();
       _status = 'Menjalankan kode...';
     });
+    GameAudio.instance.playSfx('click');
 
     var ok = true;
     for (var i = 0; i < _program.length && ok; i++) {
       final id = _program[i];
-      if (id == 'ulang') {
-        if (i == 0) {
-          setState(() => _status = 'ulangi_blok() harus dipakai setelah blok lain');
-          ok = false;
-          break;
-        }
-        setState(() => _status = 'Mengulang: ${kCmds[_program[i - 1]]!.code}');
-        await Future.delayed(const Duration(milliseconds: 160));
-        for (var k = 0; k < 2 && ok; k++) {
-          ok = await _execCmd(_program[i - 1]);
-        }
+      if (_isRepeat(id)) {
+        setState(() => _stepIndex = i);
+        ok = await _execRepeat(i);
         continue;
       }
+      // balok isi loop dijalankan oleh balok ulangi_blok, bukan di sini
+      if (_repeatOwner(i) >= 0) continue;
+      setState(() => _stepIndex = i);
       ok = await _execCmd(id);
-      if (i == 0) _stepIndex = 1;
     }
 
     if (!mounted) return;
@@ -1925,12 +2055,22 @@ class _ChallengeScreenState extends State<ChallengeScreen> {
       _toast('Tambahkan balok dulu di Palet Blok Perintah');
       return;
     }
+    if (_stepIndex == 0) _resetRobot();
+    // balok isi loop dilewati: nanti dijalankan oleh balok ulangi_blok
+    var skipped = 0;
+    while (_stepIndex < _program.length && _repeatOwner(_stepIndex) >= 0) {
+      _stepIndex++;
+      skipped++;
+    }
+    if (skipped > 0) {
+      setState(() =>
+          _status = 'Balok isi perulangan dijalankan oleh ulangi_blok');
+    }
     if (_stepIndex >= _program.length) {
       _toast('Semua balok sudah dijalankan. Tekan Atur Ulang.');
       return;
     }
     setState(() => _running = true);
-    if (_stepIndex == 0) _resetRobot();
 
     final id = _program[_stepIndex];
     final ok = await _execOne(id, _stepIndex);
@@ -2077,7 +2217,16 @@ class _ChallengeScreenState extends State<ChallengeScreen> {
           ),
           _roundBtn(Icons.star_rounded, () => _toast('Target: ${lv.starTarget} bintang'), tint: C.gold),
           const SizedBox(width: 6),
-          _roundBtn(Icons.volume_up_rounded, () => _toast('Suara belum tersedia')),
+          ValueListenableBuilder<int>(
+            valueListenable: GameAudio.instance.changes,
+            builder: (_, _, _) => _roundBtn(
+              GameAudio.instance.soundOn
+                  ? Icons.volume_up_rounded
+                  : Icons.volume_off_rounded,
+              () => GameAudio.instance
+                  .setSoundOn(!GameAudio.instance.soundOn),
+            ),
+          ),
           const SizedBox(width: 6),
           _roundBtn(Icons.more_horiz_rounded, () => _toast('Pilihan belum tersedia')),
         ],
@@ -2457,6 +2606,11 @@ class _ChallengeScreenState extends State<ChallengeScreen> {
                   ),
                 ),
                 const Spacer(),
+                if (lv.hasBuild) ...[
+                  _countChip(Icons.carpenter_rounded, const Color(0xFFE0A05A),
+                      'Papan $_wallDone/${lv.buildTotal}'),
+                  const SizedBox(width: 6),
+                ],
                 if (lv.hasTree) ...[
                   _countChip(Icons.forest_rounded, C.green,
                       'Kayu $_woodCount/$_woodTotal'),
@@ -2497,6 +2651,10 @@ class _ChallengeScreenState extends State<ChallengeScreen> {
                   sheepShorn: [
                     for (var i = 0; i < lv.sheep.length; i++)
                       _shorn.contains(i)
+                  ],
+                  walls: lv.walls,
+                  placed: [
+                    for (final p in _placed) [p[0], p[1], p[2]],
                   ],
                   robotRow: _row,
                   robotCol: _col,
@@ -2545,7 +2703,9 @@ class _ChallengeScreenState extends State<ChallengeScreen> {
                         size: 12, color: C.dim.withValues(alpha: .8)),
                     const SizedBox(width: 6),
                     Text(
-                      'Target X:${lv.goalCol}, Y:${lv.goalRow}',
+                      lv.hasBuild
+                          ? 'Papan: $_wallDone/${lv.buildTotal}'
+                          : 'Target X:${lv.goalCol}, Y:${lv.goalRow}',
                       style: const TextStyle(
                         fontSize: 10.5,
                         fontWeight: FontWeight.w900,
@@ -3359,6 +3519,85 @@ class _CartoonArt {
     );
   }
 
+  /// Papan dinding yang dipasang lewat place(): kayu atau batu bata.
+  static void plank(Canvas cv, Offset c, double s, {bool stone = false}) {
+    final w = 0.27 * s;
+    final h = 0.135 * s;
+    final ht = 0.20 * s;
+    final topP = Offset(c.dx, c.dy - h);
+    final rightP = Offset(c.dx + w, c.dy);
+    final frontP = Offset(c.dx, c.dy + h);
+    final leftP = Offset(c.dx - w, c.dy);
+
+    // bayangan lembut di dasar
+    cv.drawOval(
+      Rect.fromCenter(
+          center: c + Offset(0, ht * 0.8),
+          width: w * 2.1,
+          height: h * 2.1),
+      Paint()..color = const Color(0x33000000),
+    );
+
+    final left = Paint()..color =
+        stone ? const Color(0xFF8B94A8) : const Color(0xFF9C6B3B);
+    final right = Paint()..color =
+        stone ? const Color(0xFFA9B2C4) : const Color(0xFFC08A50);
+    final top = Paint()..color =
+        stone ? const Color(0xFFCFD6E4) : const Color(0xFFE3B27C);
+
+    // sisi kiri
+    cv.drawPath(
+      Path()
+        ..moveTo(leftP.dx, leftP.dy)
+        ..lineTo(frontP.dx, frontP.dy)
+        ..lineTo(frontP.dx, frontP.dy + ht)
+        ..lineTo(leftP.dx, leftP.dy + ht)
+        ..close(),
+      left,
+    );
+    // sisi kanan
+    cv.drawPath(
+      Path()
+        ..moveTo(rightP.dx, rightP.dy)
+        ..lineTo(frontP.dx, frontP.dy)
+        ..lineTo(frontP.dx, frontP.dy + ht)
+        ..lineTo(rightP.dx, rightP.dy + ht)
+        ..close(),
+      right,
+    );
+    // muka atas
+    cv.drawPath(
+      Path()
+        ..moveTo(topP.dx, topP.dy)
+        ..lineTo(rightP.dx, rightP.dy)
+        ..lineTo(frontP.dx, frontP.dy)
+        ..lineTo(leftP.dx, leftP.dy)
+        ..close(),
+      top,
+    );
+
+    // pola material: serat papan untuk kayu, nat bata untuk batu
+    final line = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 0.020 * s
+      ..strokeCap = StrokeCap.round
+      ..color = (stone ? const Color(0xFF6E778C) : const Color(0xFFB07E45))
+          .withValues(alpha: .85);
+    if (stone) {
+      cv.drawLine(
+          Offset.lerp(topP, leftP, .5)!, Offset.lerp(rightP, frontP, .5)!, line);
+      cv.drawLine(
+          Offset.lerp(topP, rightP, .5)!, Offset.lerp(leftP, frontP, .5)!, line);
+    } else {
+      for (final u in const [0.33, 0.67]) {
+        cv.drawLine(Offset.lerp(topP, leftP, u)!,
+            Offset.lerp(rightP, frontP, u)!, line);
+      }
+    }
+    // garis pemisah dua sisi depan
+    cv.drawLine(frontP, frontP + Offset(0, ht), line);
+  }
+
   static void bush(Canvas cv, Offset c, double s) {
     cv.drawRRect(
       RRect.fromRectAndRadius(
@@ -3379,12 +3618,13 @@ class _CartoonArt {
 // ============================================================
 // ARENA PAINTER — papan isometrik
 // ============================================================
-enum _ItemKind { bush, rock, robot, goat, tree, stump, sheep, sheepShorn }
+enum _ItemKind { bush, rock, robot, goat, tree, stump, sheep, sheepShorn, plank }
 
 class _Item {
   final int r, c;
   final _ItemKind kind;
-  _Item(this.r, this.c, this.kind);
+  final int mat; // material papan: 0 = kayu, 1 = batu
+  _Item(this.r, this.c, this.kind, [this.mat = 0]);
 }
 
 class _ArenaPainter extends CustomPainter {
@@ -3395,6 +3635,8 @@ class _ArenaPainter extends CustomPainter {
   final List<bool> treesChopped; // sejajar dengan trees
   final List<List<int>> sheep;
   final List<bool> sheepShorn; // sejajar dengan sheep
+  final List<List<int>> walls; // petak area bangunan
+  final List<List<int>> placed; // papan terpasang: [row, col, material]
   final int robotRow, robotCol, robotDir;
   final int goalRow, goalCol;
 
@@ -3406,12 +3648,17 @@ class _ArenaPainter extends CustomPainter {
     required this.treesChopped,
     required this.sheep,
     required this.sheepShorn,
+    required this.walls,
+    required this.placed,
     required this.robotRow,
     required this.robotCol,
     required this.robotDir,
     required this.goalRow,
     required this.goalCol,
   });
+
+  bool _placedAt(int r, int c) =>
+      placed.any((p) => p[0] == r && p[1] == c);
 
   @override
   void paint(Canvas canvas, Size sz) {
@@ -3488,6 +3735,24 @@ class _ArenaPainter extends CustomPainter {
           Paint()..color = (r + c).isEven ? C.boardTop : C.boardTop2,
         );
         canvas.drawPath(tile, stroke);
+        // area bangunan yang belum dipasangi papan: garis oranye putus-putus
+        if (walls.any((w) => w[0] == r && w[1] == c) && !_placedAt(r, c)) {
+          canvas.drawPath(
+            tile,
+            Paint()..color = C.orangePop.withValues(alpha: .16),
+          );
+          _dashDiamond(
+            canvas,
+            p,
+            tw / 2,
+            th / 2,
+            Paint()
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = 1.7
+              ..strokeCap = StrokeCap.round
+              ..color = C.orangePop.withValues(alpha: .9),
+          );
+        }
       }
     }
 
@@ -3511,11 +3776,25 @@ class _ArenaPainter extends CustomPainter {
       items.add(_Item(sheep[i][0], sheep[i][1],
           done ? _ItemKind.sheepShorn : _ItemKind.sheep));
     }
-    if (trees.isEmpty && sheep.isEmpty) {
+    // Papan yang sudah dipasang di petak area bangunan.
+    for (final p in placed) {
+      items.add(_Item(p[0], p[1], _ItemKind.plank, p[2]));
+    }
+    if (trees.isEmpty && sheep.isEmpty && walls.isEmpty) {
       items.add(_Item(goalRow, goalCol, _ItemKind.goat));
     }
     items.add(_Item(robotRow, robotCol, _ItemKind.robot));
-    items.sort((a, b) => (a.r + a.c).compareTo(b.r + b.c));
+    // Urutkan kedalaman; papan selalu lebih dulu di petak yang sama,
+    // dan robot selalu digambar di atas papan yang ia injak.
+    items.sort((a, b) {
+      final ka = (a.r + a.c) * 2 + (a.kind == _ItemKind.plank ? 0 : 1);
+      final kb = (b.r + b.c) * 2 + (b.kind == _ItemKind.plank ? 0 : 1);
+      final cmp = ka.compareTo(kb);
+      if (cmp != 0) return cmp;
+      if (a.kind == _ItemKind.robot) return 1;
+      if (b.kind == _ItemKind.robot) return -1;
+      return 0;
+    });
 
     final scale = tw * 0.92;
 
@@ -3541,6 +3820,9 @@ class _ArenaPainter extends CustomPainter {
           break;
         case _ItemKind.sheepShorn:
           _CartoonArt.sheep(canvas, base, scale * 0.74, shorn: true);
+          break;
+        case _ItemKind.plank:
+          _CartoonArt.plank(canvas, base, scale * 0.9, stone: it.mat == 1);
           break;
         case _ItemKind.robot:
           // lingkaran biru + penunjuk arah
@@ -3605,7 +3887,9 @@ class _ArenaPainter extends CustomPainter {
       old.goalRow != goalRow ||
       old.goalCol != goalCol ||
       !_sameFlags(old.treesChopped, treesChopped) ||
-      !_sameFlags(old.sheepShorn, sheepShorn);
+      !_sameFlags(old.sheepShorn, sheepShorn) ||
+      !_sameGrid(old.walls, walls) ||
+      !_sameGrid(old.placed, placed);
 
   static bool _sameFlags(List<bool> a, List<bool> b) {
     if (a.length != b.length) return false;
@@ -3614,6 +3898,39 @@ class _ArenaPainter extends CustomPainter {
     }
     return true;
   }
+
+  static bool _sameGrid(List<List<int>> a, List<List<int>> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i].length != b[i].length) return false;
+      for (var j = 0; j < a[i].length; j++) {
+        if (a[i][j] != b[i][j]) return false;
+      }
+    }
+    return true;
+  }
+
+  /// Garis putus-putus berbentuk belah ketupat untuk menandai petak
+  /// area bangunan (setengah lebar [hw], setengah tinggi [hh]).
+  static void _dashDiamond(
+      Canvas cv, Offset p, double hw, double hh, Paint paint) {
+    final pts = <Offset>[
+      Offset(p.dx, p.dy - hh),
+      Offset(p.dx + hw, p.dy),
+      Offset(p.dx, p.dy + hh),
+      Offset(p.dx - hw, p.dy),
+    ];
+    const seg = 3;
+    for (var i = 0; i < 4; i++) {
+      final a = pts[i];
+      final b = pts[(i + 1) % 4];
+      for (var k = 0; k < seg; k++) {
+        final t0 = k / seg;
+        final t1 = t0 + 0.55 / seg;
+        cv.drawLine(Offset.lerp(a, b, t0)!, Offset.lerp(a, b, t1)!, paint);
+      }
+    }
+  }
 }
 
 // ============================================================
@@ -3621,22 +3938,35 @@ class _ArenaPainter extends CustomPainter {
 // ============================================================
 class LevelMapScreen extends StatelessWidget {
   const LevelMapScreen({super.key});
+  /// Total bintang maksimum seluruh level (untuk StatChip di kepala peta).
+  int get _maxStars => kLevels.fold<int>(0, (a, l) => a + l.starTarget);
+
   @override
   Widget build(BuildContext context) {
-    // Semua level 1-5 terbuka agar desain bisa ditinjau satu per satu.
+    // Peta dibangun ulang otomatis tiap kali progres berubah.
+    return ValueListenableBuilder<int>(
+      valueListenable: GameProgress.instance.changes,
+      builder: (context, _, _) => _buildMap(context),
+    );
+  }
+
+  Widget _buildMap(BuildContext context) {
+    final prog = GameProgress.instance;
+    // Kunci progresif: level baru terbuka setelah level sebelumnya selesai.
     final levels = [
-      for (final lv in kLevels) (lv, 'open'),
+      for (final lv in kLevels)
+        (lv, prog.isUnlocked(lv.number) ? 'open' : 'lock'),
     ];
     return Column(
       children: [
-        const Padding(
-          padding: EdgeInsets.all(16),
+        Padding(
+          padding: const EdgeInsets.all(16),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('Dunia 1',
+              const Text('Dunia 1',
                   style: TextStyle(fontWeight: FontWeight.w900, fontSize: 20, color: Colors.white)),
-              StatChip(Icons.star_rounded, C.gold, '26 / 28'),
+              StatChip(Icons.star_rounded, C.gold, '${prog.totalStars} / $_maxStars'),
             ],
           ),
         ),
@@ -3646,7 +3976,8 @@ class LevelMapScreen extends StatelessWidget {
             itemCount: levels.length,
             itemBuilder: (_, i) {
               final (lv, state) = levels[i];
-              final color = C.green;
+              final locked = state == 'lock';
+              final color = locked ? C.navyCard2 : C.green;
               return Align(
                 alignment: i.isEven ? Alignment.centerLeft : Alignment.centerRight,
                 child: Padding(
@@ -3665,7 +3996,7 @@ class LevelMapScreen extends StatelessWidget {
                           radius: 32,
                           backgroundColor: color,
                           child: Icon(
-                            Icons.smart_toy,
+                            locked ? Icons.lock_rounded : Icons.smart_toy,
                             color: Colors.white,
                             size: 30,
                           ),
@@ -3673,8 +4004,25 @@ class LevelMapScreen extends StatelessWidget {
                       ),
                       const SizedBox(height: 4),
                       Text('${lv.number}. ${lv.title}',
-                          style: const TextStyle(
-                              fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white)),
+                          style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              color: locked ? C.muted : Colors.white)),
+                      const SizedBox(height: 2),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          for (var s = 0; s < lv.starTarget; s++)
+                            Icon(
+                              Icons.star_rounded,
+                              size: 12,
+                              color: s < prog.starsOf(lv.number)
+                                  ? C.gold
+                                  : C.navyLine,
+                            ),
+                        ],
+                      ),
                     ],
                   ),
                 ),
@@ -3726,7 +4074,10 @@ class LevelMapScreen extends StatelessWidget {
 // ============================================================
 class LevelCompleteScreen extends StatelessWidget {
   final MissionLevel level;
-  const LevelCompleteScreen({required this.level, super.key});
+
+  /// Bintang yang diraih di percobaan ini (0-3) — ditampilkan apa adanya.
+  final int stars;
+  const LevelCompleteScreen({required this.level, required this.stars, super.key});
 
   /// Level berikutnya, atau null kalau ini level terakhir.
   MissionLevel? get nextLevel {
@@ -3753,12 +4104,18 @@ class LevelCompleteScreen extends StatelessWidget {
               Text('Level ${level.number}: ${level.title}',
                   style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: C.muted)),
               const SizedBox(height: 16),
-              const Row(
+              Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Icons.star_rounded, size: 48, color: C.gold),
-                  Icon(Icons.star_rounded, size: 60, color: C.gold),
-                  Icon(Icons.star_rounded, size: 48, color: C.gold),
+                  for (var i = 0; i < 3; i++)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 2),
+                      child: Icon(
+                        Icons.star_rounded,
+                        size: i == 1 ? 60 : 48,
+                        color: i < stars ? C.gold : C.navyLine,
+                      ),
+                    ),
                 ],
               ),
               const SizedBox(height: 16),
@@ -3804,7 +4161,7 @@ class LevelCompleteScreen extends StatelessWidget {
                 )
               else
                 const Text(
-                  'Semua level 1-5 sudah selesai!',
+                  'Semua level sudah selesai!',
                   style: TextStyle(color: C.muted, fontWeight: FontWeight.w700),
                 ),
               const SizedBox(height: 12),
@@ -3830,8 +4187,59 @@ class LevelCompleteScreen extends StatelessWidget {
 }
 
 // ============================================================
-// 5. CUSTOMIZE SCREEN
+// 5. TOKO KOSTUM SCREEN
 // ============================================================
+/// Kategori aksesoris yang dijual di Toko Kostum.
+enum CostumeCategory {
+  baju('Baju', Icons.checkroom_rounded),
+  topi('Topi', Icons.school_rounded),
+  sepatu('Sepatu', Icons.hiking_rounded),
+  syal('Syal', Icons.waves_rounded),
+  sayap('Sayap', Icons.flight_rounded);
+
+  final String label;
+  final IconData icon;
+  const CostumeCategory(this.label, this.icon);
+}
+
+/// Satu barang yang dijual di Toko Kostum.
+class CostumeItem {
+  final String id;
+  final String name;
+  final CostumeCategory category;
+  final IconData icon;
+  final int price;
+  const CostumeItem(this.id, this.name, this.category, this.icon, this.price);
+}
+
+/// Daftar lengkap barang dagangan Toko Kostum.
+const kCostumeItems = <CostumeItem>[
+  // ── Baju ──
+  CostumeItem('baju_kaos', 'Kaos Kode', CostumeCategory.baju, Icons.checkroom_rounded, 80),
+  CostumeItem('baju_jaket', 'Jaket Robot', CostumeCategory.baju, Icons.dry_cleaning_rounded, 150),
+  CostumeItem('baju_ninja', 'Baju Ninja', CostumeCategory.baju, Icons.sports_martial_arts_rounded, 220),
+  CostumeItem('baju_armor', 'Armor Ksatria', CostumeCategory.baju, Icons.shield_rounded, 320),
+  // ── Topi ──
+  CostumeItem('topi_petualang', 'Topi Petualang', CostumeCategory.topi, Icons.school_rounded, 90),
+  CostumeItem('topi_koki', 'Topi Koki', CostumeCategory.topi, Icons.restaurant_rounded, 130),
+  CostumeItem('topi_helm', 'Helm Astronot', CostumeCategory.topi, Icons.rocket_launch_rounded, 280),
+  CostumeItem('topi_mahkota', 'Mahkota Emas', CostumeCategory.topi, Icons.workspace_premium_rounded, 420),
+  // ── Sepatu ──
+  CostumeItem('sepatu_lari', 'Sepatu Lari', CostumeCategory.sepatu, Icons.directions_run_rounded, 70),
+  CostumeItem('sepatu_boot', 'Sepatu Boot', CostumeCategory.sepatu, Icons.hiking_rounded, 140),
+  CostumeItem('sepatu_ninja', 'Sepatu Ninja', CostumeCategory.sepatu, Icons.bolt_rounded, 190),
+  CostumeItem('sepatu_roket', 'Sepatu Roket', CostumeCategory.sepatu, Icons.rocket_rounded, 300),
+  // ── Syal ──
+  CostumeItem('syal_biru', 'Syal Biru', CostumeCategory.syal, Icons.waves_rounded, 60),
+  CostumeItem('syal_hangat', 'Syal Hangat', CostumeCategory.syal, Icons.ac_unit_rounded, 110),
+  CostumeItem('syal_super', 'Syal Super', CostumeCategory.syal, Icons.auto_awesome_rounded, 230),
+  // ── Sayap ──
+  CostumeItem('sayap_peri', 'Sayap Peri', CostumeCategory.sayap, Icons.auto_fix_high_rounded, 160),
+  CostumeItem('sayap_burung', 'Sayap Burung', CostumeCategory.sayap, Icons.flight_rounded, 240),
+  CostumeItem('sayap_naga', 'Sayap Naga', CostumeCategory.sayap, Icons.whatshot_rounded, 360),
+  CostumeItem('sayap_cahaya', 'Sayap Cahaya', CostumeCategory.sayap, Icons.flare_rounded, 460),
+];
+
 class CustomizeScreen extends StatefulWidget {
   const CustomizeScreen({super.key});
   @override
@@ -3840,120 +4248,305 @@ class CustomizeScreen extends StatefulWidget {
 
 class _CustomizeScreenState extends State<CustomizeScreen> {
   Color robotColor = C.blue;
-  int selected = 0;
-  final items = const [
-    ('Robo-Bit', 'Terpasang', Icons.smart_toy),
-    ('Ksatria Vesel', 'Dimiliki', Icons.shield),
-    ('Penyihir Kode', '150', Icons.auto_fix_high),
-    ('Kucing Pixel', '150', Icons.pets),
-    ('Ninja Cyber', '250', Icons.sports_martial_arts),
-    ('Astronot Kubus', '300', Icons.rocket_launch),
-  ];
+  CostumeCategory category = CostumeCategory.baju;
+  String selectedId = kCostumeItems.first.id;
+
+  CostumeItem get _selected =>
+      kCostumeItems.firstWhere((e) => e.id == selectedId);
+
+  List<CostumeItem> get _categoryItems =>
+      kCostumeItems.where((e) => e.category == category).toList();
+
+  void _selectCategory(CostumeCategory c) {
+    setState(() {
+      category = c;
+      selectedId = kCostumeItems.firstWhere((e) => e.category == c).id;
+    });
+  }
+
+  void _snack(String message, Color color) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: color,
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
+  Future<void> _buy(CostumeItem item) async {
+    final ok = await GameProgress.instance.buyItem(item.id, item.price);
+    if (!mounted) return;
+    _snack(
+      ok
+          ? 'Berhasil membeli ${item.name}!'
+          : 'Koin tidak cukup untuk membeli ${item.name}.',
+      ok ? C.green : C.red,
+    );
+  }
+
+  Future<void> _equip(CostumeItem item) async {
+    await GameProgress.instance.equipItem(item.category.name, item.id);
+  }
+
+  Future<void> _unequip(CostumeItem item) async {
+    await GameProgress.instance.unequipItem(item.category.name);
+  }
 
   @override
   Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    return ValueListenableBuilder<int>(
+      valueListenable: GameProgress.instance.changes,
+      builder: (_, _, _) {
+        final prog = GameProgress.instance;
+        final item = _selected;
+        final owned = prog.ownsItem(item.id);
+        final worn = prog.isItemEquipped(item.category.name, item.id);
+
+        return SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              StatChip(Icons.monetization_on_rounded, C.gold, '248 Koin'),
-              StatChip(Icons.code_rounded, C.blue, 'Pakaian Kode'),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Container(
-            height: 160,
-            width: double.infinity,
-            decoration: BoxDecoration(
-              color: C.navyCard,
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: C.navyLine),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.28),
-                  blurRadius: 12,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-            child: Icon(items[selected].$3, size: 100, color: robotColor),
-          ),
-          const SizedBox(height: 6),
-          Center(
-            child: Text(
-              items[selected].$1,
-              style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18, color: Colors.white),
-            ),
-          ),
-          const Text('WARNA BADAN ROBOT',
-              style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: C.cyan, letterSpacing: 1)),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              for (final c in [C.blue, Colors.red, C.orange, Colors.purple])
-                GestureDetector(
-                  onTap: () => setState(() => robotColor = c),
-                  child: Container(
-                    margin: const EdgeInsets.only(right: 10),
-                    width: 30,
-                    height: 30,
-                    decoration: BoxDecoration(
-                      color: c,
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color: robotColor == c ? C.cyan : Colors.transparent,
-                        width: 3,
-                      ),
-                    ),
-                  ),
-                ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          const Text('Koleksi Kostum',
-              style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16, color: Colors.white)),
-          const SizedBox(height: 8),
-          GridView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: items.length,
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 2,
-              mainAxisSpacing: 10,
-              crossAxisSpacing: 10,
-              childAspectRatio: 1.1,
-            ),
-            itemBuilder: (_, i) => GestureDetector(
-              onTap: () => setState(() => selected = i),
-              child: Container(
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  StatChip(Icons.monetization_on_rounded, C.gold,
+                      '${_groupNum(prog.coins)} Koin'),
+                  const StatChip(Icons.storefront_rounded, C.cyan, 'Toko Kostum'),
+                ],
+              ),
+              const SizedBox(height: 12),
+              // ── Pratinjau barang terpilih ──
+              Container(
+                height: 160,
+                width: double.infinity,
                 decoration: BoxDecoration(
                   color: C.navyCard,
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(
-                    color: selected == i ? C.cyan : C.navyLine,
-                    width: 3,
-                  ),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: C.navyLine),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.28),
+                      blurRadius: 12,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
                 ),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
+                child: Stack(
                   children: [
-                    Icon(items[i].$3, size: 44, color: C.cyanSoft),
-                    Text(items[i].$1,
-                        style: const TextStyle(
-                            fontWeight: FontWeight.bold, fontSize: 12, color: Colors.white)),
-                    Text(items[i].$2,
-                        style: const TextStyle(fontSize: 11, color: C.gold)),
+                    Center(child: Icon(item.icon, size: 100, color: robotColor)),
+                    if (worn)
+                      Positioned(
+                        top: 12,
+                        right: 12,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: C.cyan.withValues(alpha: .18),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: C.cyan),
+                          ),
+                          child: const Text('DIPAKAI',
+                              style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w900,
+                                  color: C.cyan,
+                                  letterSpacing: 1)),
+                        ),
+                      ),
                   ],
                 ),
               ),
-            ),
+              const SizedBox(height: 8),
+              Center(
+                child: Text(
+                  item.name,
+                  style: const TextStyle(
+                      fontWeight: FontWeight.w900, fontSize: 18, color: Colors.white),
+                ),
+              ),
+              Center(
+                child: Text(
+                  item.category.label.toUpperCase(),
+                  style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w900,
+                      color: C.cyan,
+                      letterSpacing: 1),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  const Text('WARNA',
+                      style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w900,
+                          color: C.muted,
+                          letterSpacing: 1)),
+                  const SizedBox(width: 10),
+                  for (final c in [C.blue, Colors.red, C.orange, Colors.purple])
+                    GestureDetector(
+                      onTap: () => setState(() => robotColor = c),
+                      child: Container(
+                        margin: const EdgeInsets.only(right: 10),
+                        width: 26,
+                        height: 26,
+                        decoration: BoxDecoration(
+                          color: c,
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: robotColor == c ? C.cyan : Colors.transparent,
+                            width: 3,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              const Text('Koleksi Kostum',
+                  style: TextStyle(
+                      fontWeight: FontWeight.w900, fontSize: 16, color: Colors.white)),
+              const SizedBox(height: 8),
+              // ── Tab kategori ──
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    for (final c in CostumeCategory.values)
+                      GestureDetector(
+                        onTap: () => _selectCategory(c),
+                        child: Container(
+                          margin: const EdgeInsets.only(right: 8),
+                          padding:
+                              const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: category == c
+                                ? C.cyan.withValues(alpha: .15)
+                                : C.navyCard,
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                                color: category == c ? C.cyan : C.navyLine),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(c.icon,
+                                  size: 16,
+                                  color: category == c ? C.cyan : C.dim),
+                              const SizedBox(width: 6),
+                              Text(c.label,
+                                  style: TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 12,
+                                      color: category == c ? C.cyan : C.dim)),
+                            ],
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              // ── Grid barang per kategori ──
+              GridView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: _categoryItems.length,
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 2,
+                  mainAxisSpacing: 10,
+                  crossAxisSpacing: 10,
+                  childAspectRatio: 1.05,
+                ),
+                itemBuilder: (_, i) {
+                  final it = _categoryItems[i];
+                  final isSel = it.id == selectedId;
+                  final isOwned = prog.ownsItem(it.id);
+                  final isWorn = prog.isItemEquipped(it.category.name, it.id);
+                  return GestureDetector(
+                    onTap: () => setState(() => selectedId = it.id),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: C.navyCard,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: isSel ? C.cyan : C.navyLine,
+                          width: isSel ? 3 : 1,
+                        ),
+                      ),
+                      child: Stack(
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.all(8),
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(it.icon, size: 42, color: C.cyanSoft),
+                                const SizedBox(height: 4),
+                                Text(it.name,
+                                    textAlign: TextAlign.center,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 12,
+                                        color: Colors.white)),
+                                const SizedBox(height: 2),
+                                Text(
+                                  isOwned
+                                      ? (isWorn ? 'Terpasang' : 'Dimiliki')
+                                      : '${_groupNum(it.price)} koin',
+                                  style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w800,
+                                      color: isOwned ? C.cyan : C.gold),
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (isWorn)
+                            const Positioned(
+                              top: 6,
+                              right: 6,
+                              child: Icon(Icons.check_circle_rounded,
+                                  size: 18, color: C.cyan),
+                            ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+              const SizedBox(height: 14),
+              // ── Tombol aksi untuk barang terpilih ──
+              if (!owned)
+                BigButton(
+                  'BELI • ${_groupNum(item.price)} KOIN',
+                  C.gold,
+                  () => _buy(item),
+                  icon: Icons.shopping_cart_rounded,
+                )
+              else if (worn)
+                BigButton(
+                  'LEPAS',
+                  C.navyCard2,
+                  () => _unequip(item),
+                  icon: Icons.close_rounded,
+                )
+              else
+                BigButton(
+                  'PAKAI',
+                  C.green,
+                  () => _equip(item),
+                  icon: Icons.check_rounded,
+                ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 }
